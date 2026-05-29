@@ -689,15 +689,21 @@ def _build_bullet_review(
 
 
 def _extract_resume_bullets(text: str) -> list[str]:
-    bullets = _extract_bullets(text)
+    bullets = _extract_multiline_bullets(text)
     if bullets:
-        return [bullet for bullet in bullets if len(bullet.split()) >= 6]
+        return [
+            bullet
+            for bullet in bullets
+            if len(bullet.split()) >= 6 and _looks_like_resume_accomplishment(bullet)
+        ]
 
     inline_bullets = re.split(r"\s+-\s+", text)
     return [
         bullet.strip()
         for bullet in inline_bullets
-        if len(bullet.split()) >= 6 and not bullet.strip().isupper()
+        if len(bullet.split()) >= 6
+        and not bullet.strip().isupper()
+        and _looks_like_resume_accomplishment(bullet)
     ]
 
 
@@ -716,31 +722,161 @@ def _best_requirement_for_bullet(
     return scored[0][1]
 
 
+_ACCOMPLISHMENT_STARTS = [
+    "advanced",
+    "built",
+    "closed",
+    "co-led",
+    "created",
+    "delivered",
+    "drove",
+    "enabled",
+    "exceeded",
+    "expanded",
+    "identified",
+    "improved",
+    "launched",
+    "led",
+    "managed",
+    "owned",
+    "partnered",
+    "rebuilt",
+    "reduced",
+    "scaled",
+    "strengthened",
+]
+
+
+def _looks_like_resume_accomplishment(bullet: str) -> bool:
+    lower = bullet.strip().lower()
+    return any(lower.startswith(start) for start in _ACCOMPLISHMENT_STARTS)
+
+
+def _looks_like_skill_inventory(lower: str) -> bool:
+    first_segment = lower.split(":", 1)[0]
+    return ":" in lower and len(first_segment.split()) <= 4 and not any(
+        lower.startswith(start) for start in _ACCOMPLISHMENT_STARTS
+    )
+
+
 def _suggest_bullet_rewrite(
     bullet: str,
     requirement: dict[str, object],
     jd_analysis: dict[str, object],
 ) -> str:
     bullet = _resume_bullet_from_claim(bullet)
-    requirement_text = str(requirement["text"])
-    category = str(requirement["category"])
+    lower = bullet.lower()
+    requirement_text = str(requirement["text"]).rstrip(".")
 
-    if category == "responsibilities":
-        return f"{bullet[:-1]}, aligning delivery to {requirement_text[0].lower() + requirement_text[1:]}."
-    if category in {"delivery_methods", "seniority_signals"}:
-        return f"{bullet[:-1]}, reinforcing {requirement_text.lower()} expectations for the role."
-    if category == "tools":
-        return f"{bullet[:-1]}, with relevant experience connected to {requirement_text}."
+    if _contains_any(lower, ["launch", "rollout", "ga", "beta", "readiness"]):
+        return _rewrite_launch_bullet(bullet)
+    if _contains_any(lower, ["risk", "governance", "review", "approval", "decision log"]):
+        return _rewrite_governance_bullet(bullet)
+    if _contains_any(lower, ["ai", "llm", "mcp", "workflow", "automation"]):
+        return _rewrite_ai_delivery_bullet(bullet)
+    if _contains_any(lower, ["metric", "dashboard", "monitoring", "quality", "support"]):
+        return _rewrite_operating_cadence_bullet(bullet)
+    if _contains_any(lower, ["stakeholder", "executive", "customer", "vendor", "p&l"]):
+        return _rewrite_stakeholder_bullet(bullet)
 
-    seniority = _comma_join(jd_analysis.get("seniority_signals", [])[:2])
-    if seniority:
-        return f"{bullet[:-1]}, emphasizing {seniority.lower()} in support of this role's requirements."
+    if _token_overlap(requirement_text, lower) >= 2:
+        return bullet
     return bullet
+
+
+def _rewrite_launch_bullet(bullet: str) -> str:
+    return bullet
+
+
+def _rewrite_governance_bullet(bullet: str) -> str:
+    return bullet
+
+
+def _rewrite_ai_delivery_bullet(bullet: str) -> str:
+    lower = bullet.lower()
+    if _contains_any(lower, ["program management", "capacity planning", "workflow tool"]):
+        return bullet
+    if _contains_any(lower, ["ai", "llm", "mcp", "automation"]):
+        return _append_supported_focus(
+            bullet,
+            "showing practical AI-enabled delivery improvement",
+            ["ai", "llm", "mcp", "automation"],
+        )
+    return bullet
+
+
+def _rewrite_operating_cadence_bullet(bullet: str) -> str:
+    return bullet
+
+
+def _rewrite_stakeholder_bullet(bullet: str) -> str:
+    return bullet
+
+
+def _append_supported_focus(bullet: str, phrase: str, support_terms: list[str]) -> str:
+    lower = bullet.lower()
+    if not any(term.lower() in lower for term in support_terms):
+        return bullet
+    if phrase.lower() in lower:
+        return bullet
+    return f"{bullet.rstrip('.')}, {phrase}."
+
+
+def _contains_any(text: str, terms: list[str]) -> bool:
+    return any(_contains_term(text, term) for term in terms)
+
+
+def _contains_term(text: str, term: str) -> bool:
+    escaped = re.escape(term.lower())
+    if re.search(r"[a-z0-9]", term.lower()):
+        return bool(re.search(rf"(?<![a-z0-9]){escaped}(?![a-z0-9])", text.lower()))
+    return term.lower() in text.lower()
+
+
+def _extract_multiline_bullets(text: str) -> list[str]:
+    bullets = []
+    current = ""
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if line.startswith(("-", "*", "•")):
+            if current:
+                bullets.append(_normalize_resume_bullet(current))
+            current = line.lstrip("-*• ").strip()
+            continue
+        if current and not _looks_like_resume_heading(line):
+            current = f"{current} {line}".strip()
+    if current:
+        bullets.append(_normalize_resume_bullet(current))
+    return bullets
+
+
+def _looks_like_resume_heading(line: str) -> bool:
+    lower = line.lower().strip()
+    return (
+        (line.isupper() and len(line.split()) > 1)
+        or lower in {"summary", "professional experience", "education & certifications", "technical toolkit"}
+        or bool(
+            re.search(
+                r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\b|\b(19|20)\d{2}\b",
+                lower,
+            )
+        )
+        and len(line.split()) <= 20
+    )
+
+
+def _normalize_resume_bullet(bullet: str) -> str:
+    bullet = re.sub(r"\s+", " ", bullet).strip()
+    bullet = bullet.replace(" ,", ",").replace(" .", ".")
+    bullet = bullet.replace(",,", ",")
+    return bullet.rstrip(".") + "."
 
 
 def _reason_for_bullet_change(bullet: str, requirement: dict[str, object]) -> str:
     return (
-        "This bullet already has relevant evidence. The rewrite nudges wording toward "
+        "This rewrite preserves the original evidence and tightens the framing toward "
         f"the JD requirement `{requirement['text']}` without adding unsupported facts."
     )
 

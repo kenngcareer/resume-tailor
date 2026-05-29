@@ -1,6 +1,6 @@
 from click.testing import CliRunner
 
-from resume_tailor.cli import _truthfulness_guardrail, main
+from resume_tailor.cli import _contains_any, _extract_resume_bullets, _truthfulness_guardrail, main
 
 
 def test_cli_help() -> None:
@@ -270,6 +270,39 @@ PROFESSIONAL EXPERIENCE
     assert "Suggested rewrite" in review
     assert "Truthfulness risk" in review
     assert "Decision: pending" in review
+    assert "aligning delivery to" not in review
+    assert "reinforcing" not in review
+
+
+def test_resume_bullet_extraction_skips_skill_inventory() -> None:
+    bullets = _extract_resume_bullets(
+        """
+- ML ads delivery: ranking, calibration, auction mechanics, attribution, pricing, quality
+- Led cross-functional launch governance and risk tracking for a platform rollout.
+- Product strategy: roadmap planning, prioritization, launch metrics
+""".strip()
+    )
+
+    assert bullets == [
+        "Led cross-functional launch governance and risk tracking for a platform rollout."
+    ]
+
+
+def test_resume_bullet_extraction_joins_continuations() -> None:
+    bullets = _extract_resume_bullets(
+        """
+- Led launch from alpha to GA and generated
+>$100M in revenue across markets.
+- Product strategy: roadmap planning, prioritization, launch metrics
+""".strip()
+    )
+
+    assert bullets == ["Led launch from alpha to GA and generated >$100M in revenue across markets."]
+
+
+def test_contains_any_uses_term_boundaries() -> None:
+    assert not _contains_any("exceeded ads-value gain goal", ["ga"])
+    assert _contains_any("scaled through GA rollout", ["ga"])
 
 
 def test_apply_approved_uses_only_approved_and_edited_items(tmp_path) -> None:
