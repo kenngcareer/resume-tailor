@@ -120,6 +120,17 @@ This writes:
 - `approval_summary.md`
 - `blocked_items.md`
 
+Export the reviewed resume to an ATS-safe DOCX:
+
+```powershell
+py -m resume_tailor export-docx outputs\example-job\resume_approved.md
+```
+
+This writes:
+
+- `resume_approved.docx`
+- `resume_approved_export_summary.md`
+
 ## Review Rules
 
 Treat the generated resume as a draft. Before applying:

@@ -12,6 +12,7 @@ def test_cli_help() -> None:
     assert "analyze-job" in result.output
     assert "review-diff" in result.output
     assert "apply-approved" in result.output
+    assert "export-docx" in result.output
 
 
 def test_tailor_job_writes_outputs(tmp_path) -> None:
@@ -467,6 +468,39 @@ review_items:
     resume = (output_dir / "resume_approved.md").read_text(encoding="utf-8")
     assert result.exit_code == 0
     assert "Managed engineering teams" in resume
+
+
+def test_export_docx_writes_docx_and_summary(tmp_path) -> None:
+    markdown_path = tmp_path / "resume_approved.md"
+    docx_path = tmp_path / "resume_approved.docx"
+
+    markdown_path.write_text(
+        """
+# Example Candidate
+
+## Summary
+
+Enterprise TPM with AI platform experience.
+
+## Approved Bullets
+
+- Led governance for a platform launch.
+- Improved risk tracking across stakeholders.
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        main,
+        ["export-docx", str(markdown_path), "--output-path", str(docx_path)],
+    )
+
+    assert result.exit_code == 0
+    assert docx_path.exists()
+    assert docx_path.stat().st_size > 0
+    summary = (tmp_path / "resume_approved_export_summary.md").read_text(encoding="utf-8")
+    assert "single column" in summary
+    assert "no tables" in summary
 
 
 def test_truthfulness_guardrail_flags_risky_verb_inflation() -> None:
