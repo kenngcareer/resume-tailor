@@ -17,10 +17,14 @@ This roadmap maps the current repo to the ResumeTailor AI v1.0 PRD.
 - Enforced approval blocking for medium/high truthfulness risk.
 - ATS-safe DOCX export from reviewed Markdown resumes.
 - Public demo workflow using fake profile, resume, and job posting data.
+- Section-level reconstructed resume draft from approved review items.
+- GitHub Actions CI.
 
 ## Next
 
-- GitHub Actions CI.
+- Stronger bullet rewrite generation.
+- Optional LLM adapter with explicit privacy controls.
+- Web UI for approve/reject/edit review.
 
 ## Product Direction
 

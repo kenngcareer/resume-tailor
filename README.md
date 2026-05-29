@@ -62,6 +62,7 @@ ATS-safe DOCX export
 - Truthfulness guardrails for risky rewrites.
 - Enforced approval blocking for medium/high risk claims.
 - Approved resume Markdown generation.
+- Section-level reconstructed resume draft generation.
 - ATS-safe DOCX export.
 - Public fake-data demo.
 - GitHub Actions CI.

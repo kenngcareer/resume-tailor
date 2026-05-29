@@ -323,13 +323,18 @@ review_items:
 
     assert result.exit_code == 0
     resume = (output_dir / "resume_approved.md").read_text(encoding="utf-8")
+    reconstructed = (output_dir / "resume_reconstructed.md").read_text(encoding="utf-8")
     summary = (output_dir / "approval_summary.md").read_text(encoding="utf-8")
     blocked = (output_dir / "blocked_items.md").read_text(encoding="utf-8")
     assert "Approved rewrite for governance" in resume
     assert "Edited rewrite for risk management" in resume
     assert "Rejected rewrite" not in resume
     assert "Pending rewrite" not in resume
+    assert "Targeted Summary" in reconstructed
+    assert "Experience Highlights" in reconstructed
+    assert "Edited rewrite for risk management" in reconstructed
     assert "Included in approved resume: 2" in summary
+    assert "Reconstructed resume" in summary
     assert "No items were blocked" in blocked
 
 
@@ -513,6 +518,7 @@ def test_demo_writes_public_demo_artifacts(tmp_path) -> None:
     assert (target_dir / "match_report.md").exists()
     assert (target_dir / "bullet_review.yml").exists()
     assert (target_dir / "resume_approved.md").exists()
+    assert (target_dir / "resume_reconstructed.md").exists()
     assert (target_dir / "resume_approved.docx").exists()
 
 

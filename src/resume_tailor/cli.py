@@ -418,6 +418,7 @@ def apply_approved(bullet_review_path: Path, output_dir: Path | None) -> None:
     target_dir.mkdir(parents=True, exist_ok=True)
 
     resume_path = target_dir / "resume_approved.md"
+    reconstructed_path = target_dir / "resume_reconstructed.md"
     summary_path = target_dir / "approval_summary.md"
     blocked_path = target_dir / "blocked_items.md"
 
@@ -425,8 +426,12 @@ def apply_approved(bullet_review_path: Path, output_dir: Path | None) -> None:
         _render_approved_resume(review, approved_items),
         encoding="utf-8",
     )
+    reconstructed_path.write_text(
+        _render_reconstructed_resume(review, approved_items),
+        encoding="utf-8",
+    )
     summary_path.write_text(
-        _render_approval_summary(review, approved_items, blocked_items),
+        _render_approval_summary(review, approved_items, blocked_items, reconstructed_path),
         encoding="utf-8",
     )
     blocked_path.write_text(
@@ -435,6 +440,7 @@ def apply_approved(bullet_review_path: Path, output_dir: Path | None) -> None:
     )
 
     click.echo(f"Wrote approved resume draft to {resume_path}")
+    click.echo(f"Wrote reconstructed resume draft to {reconstructed_path}")
     click.echo(f"Wrote approval summary to {summary_path}")
     click.echo(f"Wrote blocked items report to {blocked_path}")
 
@@ -509,6 +515,7 @@ def demo(output_dir: Path) -> None:
         "bullet_review_yml": job_output_dir / "bullet_review.yml",
         "bullet_review_md": job_output_dir / "bullet_review.md",
         "resume_approved": job_output_dir / "resume_approved.md",
+        "resume_reconstructed": job_output_dir / "resume_reconstructed.md",
         "approval_summary": job_output_dir / "approval_summary.md",
         "blocked_items": job_output_dir / "blocked_items.md",
         "resume_docx": job_output_dir / "resume_approved.docx",
@@ -537,8 +544,12 @@ def demo(output_dir: Path) -> None:
         _render_approved_resume(review, approved_items),
         encoding="utf-8",
     )
+    paths["resume_reconstructed"].write_text(
+        _render_reconstructed_resume(review, approved_items),
+        encoding="utf-8",
+    )
     paths["approval_summary"].write_text(
-        _render_approval_summary(review, approved_items, blocked_items),
+        _render_approval_summary(review, approved_items, blocked_items, paths["resume_reconstructed"]),
         encoding="utf-8",
     )
     paths["blocked_items"].write_text(_render_blocked_items(review, blocked_items), encoding="utf-8")
@@ -971,10 +982,113 @@ def _render_approved_resume(
     return "\n".join(lines)
 
 
+def _render_reconstructed_resume(
+    review: dict[str, object],
+    approved_items: list[dict[str, object]],
+) -> str:
+    job = review.get("job", {})
+    candidate_name = _candidate_name_from_review(review)
+    role = str(job.get("title", "Target Role"))
+    company = str(job.get("company", "") or "target company")
+    summary = _reconstructed_summary(role, company, approved_items)
+    skills = _skills_from_approved_items(approved_items)
+
+    lines = [
+        f"# {candidate_name}",
+        "",
+        "## Targeted Summary",
+        "",
+        summary,
+        "",
+        "## Selected Skills",
+        "",
+    ]
+    if skills:
+        lines.append(", ".join(skills))
+    else:
+        lines.append("Add role-relevant skills after reviewing the target job description.")
+
+    lines.extend(["", "## Experience Highlights", ""])
+    if approved_items:
+        lines.extend(f"- {item['final_bullet']}" for item in approved_items)
+    else:
+        lines.append("- No approved or edited bullets found.")
+
+    lines.extend(
+        [
+            "",
+            "## Education",
+            "",
+            "Add education from the selected base resume.",
+            "",
+            "## Final Verification",
+            "",
+            "- Confirm every bullet is true, specific, and safe to share externally.",
+            "- Merge contact information, company names, dates, and education from the base resume.",
+            "- Keep pending, rejected, or blocked review items out of the final resume.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _candidate_name_from_review(review: dict[str, object]) -> str:
+    return "Candidate Name"
+
+
+def _reconstructed_summary(
+    role: str,
+    company: str,
+    approved_items: list[dict[str, object]],
+) -> str:
+    themes = _dedupe_preserve_order(
+        [
+            str(item.get("requirement_category", "")).replace("_", " ")
+            for item in approved_items
+            if item.get("requirement_category")
+        ]
+    )
+    if themes:
+        theme_text = ", ".join(themes[:4])
+        return (
+            f"Candidate targeting {role} at {company}, with approved evidence aligned to "
+            f"{theme_text}. Review and tune this summary against the final resume voice."
+        )
+    return f"Candidate targeting {role} at {company}. Add a concise, evidence-based summary."
+
+
+def _skills_from_approved_items(approved_items: list[dict[str, object]], limit: int = 12) -> list[str]:
+    source_text = " ".join(
+        " ".join(
+            [
+                str(item.get("final_bullet", "")),
+                str(item.get("related_jd_requirement", "")),
+            ]
+        )
+        for item in approved_items
+    ).lower()
+    candidates = [
+        "Technical program management",
+        "Risk management",
+        "Executive communication",
+        "Launch governance",
+        "Cross-functional leadership",
+        "Roadmap planning",
+        "Agile delivery",
+        "SQL",
+        "AI workflow adoption",
+        "Stakeholder management",
+        "Decision logs",
+        "Support readiness",
+    ]
+    return [skill for skill in candidates if skill.lower() in source_text][:limit]
+
+
 def _render_approval_summary(
     review: dict[str, object],
     approved_items: list[dict[str, object]],
     blocked_items: list[dict[str, object]],
+    reconstructed_path: Path | None = None,
 ) -> str:
     items = review.get("review_items", []) or []
     counts = {
@@ -1001,6 +1115,7 @@ def _render_approval_summary(
         f"- Other: {counts['other']}",
         f"- Included in approved resume: {len(approved_items)}",
         f"- Blocked by truthfulness guardrail: {len(blocked_items)}",
+        f"- Reconstructed resume: `{reconstructed_path}`" if reconstructed_path else "- Reconstructed resume: not written",
         "",
         "## Included Items",
         "",

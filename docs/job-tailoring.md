@@ -125,6 +125,7 @@ py -m resume_tailor apply-approved outputs\example-job\bullet_review.yml
 This writes:
 
 - `resume_approved.md`
+- `resume_reconstructed.md`
 - `approval_summary.md`
 - `blocked_items.md`
 
