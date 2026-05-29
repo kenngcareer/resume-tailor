@@ -319,6 +319,83 @@ def analyze_job(
     click.echo(f"Wrote match report to {match_report_path}")
 
 
+@main.command()
+@click.argument("job_posting_path", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--profile",
+    "profile_path",
+    type=click.Path(exists=True, path_type=Path),
+    default=PRIVATE_ROOT / "profile.yml",
+    show_default=True,
+    help="Structured private career profile to support truth checks.",
+)
+@click.option(
+    "--base-resume",
+    type=click.Choice(["pm", "tpm"], case_sensitive=False),
+    default=None,
+    help="Use a private PM or TPM base resume for side-by-side review.",
+)
+@click.option(
+    "--base-resume-path",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Use a specific private base resume text or PDF file.",
+)
+@click.option(
+    "--output-dir",
+    type=click.Path(path_type=Path),
+    default=OUTPUTS_ROOT,
+    show_default=True,
+    help="Directory where review artifacts will be written.",
+)
+def review_diff(
+    job_posting_path: Path,
+    profile_path: Path,
+    base_resume: str | None,
+    base_resume_path: Path | None,
+    output_dir: Path,
+) -> None:
+    """Generate side-by-side bullet rewrite suggestions for review."""
+    if not base_resume and not base_resume_path:
+        raise click.ClickException("Pass --base-resume or --base-resume-path for review-diff.")
+
+    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8")) or {}
+    job_text = job_posting_path.read_text(encoding="utf-8")
+    job = _parse_job_posting(job_text, job_posting_path)
+    jd_analysis = _analyze_job_description(job_text, job)
+    resolved_base_path = base_resume_path or _resolve_base_resume(base_resume or "")
+    base_text = _clean_resume_text(_load_resume_text(resolved_base_path))
+    suggestions = _build_bullet_review(profile, base_text, jd_analysis)
+
+    job_slug = _slugify(str(job["title"]) or job_posting_path.stem)
+    job_output_dir = output_dir / job_slug
+    job_output_dir.mkdir(parents=True, exist_ok=True)
+
+    review = {
+        "job": {
+            "title": job.get("title", ""),
+            "company": job.get("company", ""),
+            "source": str(job_posting_path),
+        },
+        "base_resume": str(resolved_base_path),
+        "review_items": suggestions,
+    }
+
+    review_yml_path = job_output_dir / "bullet_review.yml"
+    review_md_path = job_output_dir / "bullet_review.md"
+    review_yml_path.write_text(
+        yaml.safe_dump(review, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    review_md_path.write_text(
+        _render_bullet_review_markdown(review),
+        encoding="utf-8",
+    )
+
+    click.echo(f"Wrote bullet review YAML to {review_yml_path}")
+    click.echo(f"Wrote bullet review Markdown to {review_md_path}")
+
+
 def _document_summary(relative_path: Path, text: str) -> dict[str, object]:
     return {
         "path": str(relative_path).replace("\\", "/"),
@@ -396,6 +473,138 @@ def _build_match_report(
         "missing_evidence": [row for row in rows if row["confidence"] in {"Needs Confirmation", "Missing"}],
         "scored_requirements": rows,
     }
+
+
+def _build_bullet_review(
+    profile: dict[str, object],
+    base_resume_text: str,
+    jd_analysis: dict[str, object],
+    limit: int = 12,
+) -> list[dict[str, object]]:
+    bullets = _extract_resume_bullets(base_resume_text)
+    requirements = _requirements_for_scoring(jd_analysis)
+    evidence_text = _profile_to_match_text(profile, base_resume_text)
+    review_items = []
+
+    for bullet in bullets:
+        best_requirement = _best_requirement_for_bullet(bullet, requirements)
+        if not best_requirement:
+            continue
+        support = _support_for_requirement(best_requirement, evidence_text)
+        suggested = _suggest_bullet_rewrite(bullet, best_requirement, jd_analysis)
+        review_items.append(
+            {
+                "id": f"BR-{len(review_items) + 1:03d}",
+                "original_bullet": bullet,
+                "suggested_rewrite": suggested,
+                "related_jd_requirement": best_requirement["text"],
+                "requirement_category": best_requirement["category"],
+                "reason_for_change": _reason_for_bullet_change(bullet, best_requirement),
+                "supporting_evidence": support["evidence"],
+                "confidence": support["confidence"],
+                "decision": "pending",
+                "user_edit": "",
+            }
+        )
+        if len(review_items) >= limit:
+            break
+
+    return review_items
+
+
+def _extract_resume_bullets(text: str) -> list[str]:
+    bullets = _extract_bullets(text)
+    if bullets:
+        return [bullet for bullet in bullets if len(bullet.split()) >= 6]
+
+    inline_bullets = re.split(r"\s+-\s+", text)
+    return [
+        bullet.strip()
+        for bullet in inline_bullets
+        if len(bullet.split()) >= 6 and not bullet.strip().isupper()
+    ]
+
+
+def _best_requirement_for_bullet(
+    bullet: str,
+    requirements: list[dict[str, object]],
+) -> dict[str, object] | None:
+    scored = []
+    for requirement in requirements:
+        score = _token_overlap(str(requirement["text"]), bullet.lower())
+        if score:
+            scored.append((score * int(requirement["weight"]), requirement))
+    if not scored:
+        return None
+    scored.sort(key=lambda item: -item[0])
+    return scored[0][1]
+
+
+def _suggest_bullet_rewrite(
+    bullet: str,
+    requirement: dict[str, object],
+    jd_analysis: dict[str, object],
+) -> str:
+    bullet = _resume_bullet_from_claim(bullet)
+    requirement_text = str(requirement["text"])
+    category = str(requirement["category"])
+
+    if category == "responsibilities":
+        return f"{bullet[:-1]}, aligning delivery to {requirement_text[0].lower() + requirement_text[1:]}."
+    if category in {"delivery_methods", "seniority_signals"}:
+        return f"{bullet[:-1]}, reinforcing {requirement_text.lower()} expectations for the role."
+    if category == "tools":
+        return f"{bullet[:-1]}, with relevant experience connected to {requirement_text}."
+
+    seniority = _comma_join(jd_analysis.get("seniority_signals", [])[:2])
+    if seniority:
+        return f"{bullet[:-1]}, emphasizing {seniority.lower()} in support of this role's requirements."
+    return bullet
+
+
+def _reason_for_bullet_change(bullet: str, requirement: dict[str, object]) -> str:
+    return (
+        "This bullet already has relevant evidence. The rewrite nudges wording toward "
+        f"the JD requirement `{requirement['text']}` without adding unsupported facts."
+    )
+
+
+def _render_bullet_review_markdown(review: dict[str, object]) -> str:
+    job = review.get("job", {})
+    items = review.get("review_items", [])
+    lines = [
+        f"# Bullet Review: {job.get('title', 'Target Role')}",
+        "",
+        f"Company: {job.get('company') or 'Unknown'}",
+        f"Source: `{job.get('source')}`",
+        f"Base resume: `{review.get('base_resume')}`",
+        "",
+        "Review every item before using it in a resume. Decisions start as `pending`.",
+        "",
+    ]
+    for item in items:
+        lines.extend(
+            [
+                f"## {item['id']} - {item['confidence']}",
+                "",
+                "**Original bullet**",
+                "",
+                f"> {item['original_bullet']}",
+                "",
+                "**Suggested rewrite**",
+                "",
+                f"> {item['suggested_rewrite']}",
+                "",
+                f"Related JD requirement: {item['related_jd_requirement']}",
+                f"Reason: {item['reason_for_change']}",
+                f"Supporting evidence: {item['supporting_evidence'] or 'not found'}",
+                f"Decision: {item['decision']}",
+                "",
+            ]
+        )
+    if not items:
+        lines.extend(["No matching bullets found for review.", ""])
+    return "\n".join(lines)
 
 
 def _resolve_base_resume(base_resume: str) -> Path:

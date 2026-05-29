@@ -54,6 +54,19 @@ This adds:
 - `rewrite_plan.md`
 - `verification_checklist.md`
 
+For the guided review step, generate side-by-side bullet suggestions:
+
+```powershell
+py -m resume_tailor review-diff private\job-postings\example-job.md --base-resume tpm
+```
+
+This writes:
+
+- `bullet_review.yml`
+- `bullet_review.md`
+
+Each review item includes the original bullet, suggested rewrite, related JD requirement, reason, supporting evidence, confidence label, and `pending` decision.
+
 ## Review Rules
 
 Treat the generated resume as a draft. Before applying:

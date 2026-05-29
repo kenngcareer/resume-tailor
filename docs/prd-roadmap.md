@@ -11,10 +11,10 @@ This roadmap maps the current repo to the ResumeTailor AI v1.0 PRD.
 - Base-resume-aware tailoring artifacts.
 - Structured JD analysis.
 - Explainable match report with strengths, partial matches, missing evidence, and confidence labels.
+- Side-by-side bullet diff workflow with pending review decisions.
 
 ## Next
 
-- Side-by-side bullet diff workflow.
 - Truthfulness guardrail for unsupported rewrites.
 - Approve, reject, and edit review state.
 - ATS-safe DOCX export.

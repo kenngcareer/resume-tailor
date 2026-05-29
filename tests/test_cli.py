@@ -10,6 +10,7 @@ def test_cli_help() -> None:
     assert "Resume tailoring workflow commands" in result.output
     assert "tailor-job" in result.output
     assert "analyze-job" in result.output
+    assert "review-diff" in result.output
 
 
 def test_tailor_job_writes_outputs(tmp_path) -> None:
@@ -195,3 +196,73 @@ verification_needed:
     assert "Match Score" in report
     assert "Strengths" in report
     assert "Missing Or Needs Confirmation" in report
+
+
+def test_review_diff_writes_side_by_side_review(tmp_path) -> None:
+    profile_path = tmp_path / "profile.yml"
+    job_path = tmp_path / "job.md"
+    base_resume_path = tmp_path / "base_resume.txt"
+    output_dir = tmp_path / "outputs"
+
+    profile_path.write_text(
+        """
+name: Example Candidate
+positioning:
+  headline: Enterprise TPM.
+  themes:
+    - Risk management
+skills:
+  - Agile
+  - executive communication
+evidence_snippets:
+  - claim: Led executive governance, Agile delivery, and risk management.
+    status: needs_review
+""".strip(),
+        encoding="utf-8",
+    )
+    job_path.write_text(
+        """
+# Senior Technical Program Manager
+
+## Required Qualifications
+
+- Ability to lead executive communication and risk management.
+
+## Responsibilities
+
+- Lead cross-functional roadmap planning.
+""".strip(),
+        encoding="utf-8",
+    )
+    base_resume_path.write_text(
+        """
+EXAMPLE CANDIDATE
+PROFESSIONAL EXPERIENCE
+- Led executive governance, Agile delivery, and risk management for a platform launch.
+- Improved support readiness and decision logs across stakeholders.
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "review-diff",
+            str(job_path),
+            "--profile",
+            str(profile_path),
+            "--base-resume-path",
+            str(base_resume_path),
+            "--output-dir",
+            str(output_dir),
+        ],
+    )
+
+    target_dir = output_dir / "senior-technical-program-manager"
+    assert result.exit_code == 0
+    assert (target_dir / "bullet_review.yml").exists()
+    assert (target_dir / "bullet_review.md").exists()
+    review = (target_dir / "bullet_review.md").read_text(encoding="utf-8")
+    assert "Original bullet" in review
+    assert "Suggested rewrite" in review
+    assert "Decision: pending" in review
