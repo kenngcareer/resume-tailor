@@ -1,0 +1,31 @@
+name: Example Candidate
+target_roles:
+  - Product Manager
+  - Technical Program Manager
+positioning:
+  headline: Product and technical program leader for ambiguous, cross-functional work.
+  themes:
+    - AI and data products
+    - Platform execution
+    - Stakeholder alignment
+    - Operational rigor
+roles:
+  - company: ExampleCo
+    title: Senior TPM
+    start: 2021
+    end: Present
+    scope:
+      - Led cross-functional platform programs across engineering, product, and operations.
+    outcomes:
+      - Reduced launch risk by creating a shared planning and dependency review process.
+projects:
+  - name: AI Workflow Platform
+    role: Program lead
+    evidence:
+      - Coordinated roadmap, launch plan, and executive updates.
+    metrics:
+      - Improved delivery predictability across multiple teams.
+feedback:
+  - source: Colleague
+    theme: Cross-functional leadership
+    quote: Clear communicator who creates structure in ambiguous programs.
