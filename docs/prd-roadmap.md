@@ -14,10 +14,10 @@ This roadmap maps the current repo to the ResumeTailor AI v1.0 PRD.
 - Side-by-side bullet diff workflow with pending review decisions.
 - Approved/edited review item application into reviewed resume artifacts.
 - Truthfulness guardrail fields for risky rewrites, blocked terms, and confirmation prompts.
+- Enforced approval blocking for medium/high truthfulness risk.
 
 ## Next
 
-- Stronger unsupported-claim blocking during approval.
 - ATS-safe DOCX export.
 - Public demo using fake resume and fake job data.
 

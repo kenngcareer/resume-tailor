@@ -322,11 +322,151 @@ review_items:
     assert result.exit_code == 0
     resume = (output_dir / "resume_approved.md").read_text(encoding="utf-8")
     summary = (output_dir / "approval_summary.md").read_text(encoding="utf-8")
+    blocked = (output_dir / "blocked_items.md").read_text(encoding="utf-8")
     assert "Approved rewrite for governance" in resume
     assert "Edited rewrite for risk management" in resume
     assert "Rejected rewrite" not in resume
     assert "Pending rewrite" not in resume
     assert "Included in approved resume: 2" in summary
+    assert "No items were blocked" in blocked
+
+
+def test_apply_approved_blocks_medium_without_confirmation(tmp_path) -> None:
+    review_path = tmp_path / "bullet_review.yml"
+    output_dir = tmp_path / "approved"
+
+    review_path.write_text(
+        """
+job:
+  title: Senior Technical Program Manager
+review_items:
+  - id: BR-001
+    original_bullet: Led delivery governance.
+    suggested_rewrite: Led Salesforce delivery governance.
+    confidence: Medium
+    truthfulness_risk: medium
+    blocked_terms:
+      - salesforce
+    decision: approved
+    user_edit: ''
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        main,
+        ["apply-approved", str(review_path), "--output-dir", str(output_dir)],
+    )
+
+    assert result.exit_code == 0
+    resume = (output_dir / "resume_approved.md").read_text(encoding="utf-8")
+    summary = (output_dir / "approval_summary.md").read_text(encoding="utf-8")
+    blocked = (output_dir / "blocked_items.md").read_text(encoding="utf-8")
+    assert "Led Salesforce delivery governance" not in resume
+    assert "Blocked by truthfulness guardrail: 1" in summary
+    assert "requires confirmation_note" in blocked
+
+
+def test_apply_approved_allows_medium_with_confirmation(tmp_path) -> None:
+    review_path = tmp_path / "bullet_review.yml"
+    output_dir = tmp_path / "approved"
+
+    review_path.write_text(
+        """
+job:
+  title: Senior Technical Program Manager
+review_items:
+  - id: BR-001
+    original_bullet: Led delivery governance.
+    suggested_rewrite: Led Salesforce delivery governance.
+    confidence: Medium
+    truthfulness_risk: medium
+    blocked_terms:
+      - salesforce
+    confirmation_note: Confirmed Salesforce experience is accurate.
+    decision: approved
+    user_edit: ''
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        main,
+        ["apply-approved", str(review_path), "--output-dir", str(output_dir)],
+    )
+
+    resume = (output_dir / "resume_approved.md").read_text(encoding="utf-8")
+    assert result.exit_code == 0
+    assert "Led Salesforce delivery governance" in resume
+
+
+def test_apply_approved_blocks_high_without_override(tmp_path) -> None:
+    review_path = tmp_path / "bullet_review.yml"
+    output_dir = tmp_path / "approved"
+
+    review_path.write_text(
+        """
+job:
+  title: Senior Technical Program Manager
+review_items:
+  - id: BR-001
+    original_bullet: Partnered with engineering teams.
+    suggested_rewrite: Managed engineering teams.
+    confidence: Needs Confirmation
+    truthfulness_risk: high
+    blocked_terms:
+      - partnered -> managed
+    confirmation_note: Confirmed direct management.
+    decision: approved
+    user_edit: ''
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        main,
+        ["apply-approved", str(review_path), "--output-dir", str(output_dir)],
+    )
+
+    resume = (output_dir / "resume_approved.md").read_text(encoding="utf-8")
+    blocked = (output_dir / "blocked_items.md").read_text(encoding="utf-8")
+    assert result.exit_code == 0
+    assert "Managed engineering teams" not in resume
+    assert "requires override_truthfulness_block" in blocked
+
+
+def test_apply_approved_allows_high_with_override(tmp_path) -> None:
+    review_path = tmp_path / "bullet_review.yml"
+    output_dir = tmp_path / "approved"
+
+    review_path.write_text(
+        """
+job:
+  title: Senior Technical Program Manager
+review_items:
+  - id: BR-001
+    original_bullet: Partnered with engineering teams.
+    suggested_rewrite: Managed engineering teams.
+    confidence: Needs Confirmation
+    truthfulness_risk: high
+    blocked_terms:
+      - partnered -> managed
+    confirmation_note: Confirmed direct management.
+    override_truthfulness_block: true
+    decision: approved
+    user_edit: ''
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        main,
+        ["apply-approved", str(review_path), "--output-dir", str(output_dir)],
+    )
+
+    resume = (output_dir / "resume_approved.md").read_text(encoding="utf-8")
+    assert result.exit_code == 0
+    assert "Managed engineering teams" in resume
 
 
 def test_truthfulness_guardrail_flags_risky_verb_inflation() -> None:

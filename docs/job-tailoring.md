@@ -75,6 +75,13 @@ The review also includes truthfulness guardrail fields:
 
 Treat medium/high risk items as confirmation prompts, not ready-to-use resume claims.
 
+`apply-approved` enforces these fields:
+
+- low-risk approved items are included
+- medium-risk approved items require `confirmation_note`
+- high-risk approved items require `override_truthfulness_block: true`
+- edited bullets are rechecked before inclusion
+
 After review, change decisions in `bullet_review.yml`:
 
 ```yaml
@@ -88,6 +95,19 @@ decision: edited
 user_edit: "Your revised bullet."
 ```
 
+For medium-risk items, add:
+
+```yaml
+confirmation_note: "Confirmed this wording is accurate."
+```
+
+For high-risk items, the default is to block. If you deliberately want to override:
+
+```yaml
+override_truthfulness_block: true
+confirmation_note: "Confirmed this claim is accurate and supported."
+```
+
 Then generate reviewed artifacts:
 
 ```powershell
@@ -98,6 +118,7 @@ This writes:
 
 - `resume_approved.md`
 - `approval_summary.md`
+- `blocked_items.md`
 
 ## Review Rules
 

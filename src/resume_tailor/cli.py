@@ -407,24 +407,30 @@ def review_diff(
 def apply_approved(bullet_review_path: Path, output_dir: Path | None) -> None:
     """Generate resume artifacts from approved or edited review items."""
     review = yaml.safe_load(bullet_review_path.read_text(encoding="utf-8")) or {}
-    approved_items = _approved_review_items(review)
+    approved_items, blocked_items = _approval_decisions(review)
     target_dir = output_dir or bullet_review_path.parent
     target_dir.mkdir(parents=True, exist_ok=True)
 
     resume_path = target_dir / "resume_approved.md"
     summary_path = target_dir / "approval_summary.md"
+    blocked_path = target_dir / "blocked_items.md"
 
     resume_path.write_text(
         _render_approved_resume(review, approved_items),
         encoding="utf-8",
     )
     summary_path.write_text(
-        _render_approval_summary(review, approved_items),
+        _render_approval_summary(review, approved_items, blocked_items),
+        encoding="utf-8",
+    )
+    blocked_path.write_text(
+        _render_blocked_items(review, blocked_items),
         encoding="utf-8",
     )
 
     click.echo(f"Wrote approved resume draft to {resume_path}")
     click.echo(f"Wrote approval summary to {summary_path}")
+    click.echo(f"Wrote blocked items report to {blocked_path}")
 
 
 def _document_summary(relative_path: Path, text: str) -> dict[str, object]:
@@ -747,8 +753,11 @@ def _render_bullet_review_markdown(review: dict[str, object]) -> str:
     return "\n".join(lines)
 
 
-def _approved_review_items(review: dict[str, object]) -> list[dict[str, object]]:
+def _approval_decisions(
+    review: dict[str, object],
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
     approved = []
+    blocked = []
     for item in review.get("review_items", []) or []:
         decision = str(item.get("decision", "pending")).lower()
         if decision == "approved":
@@ -760,14 +769,55 @@ def _approved_review_items(review: dict[str, object]) -> list[dict[str, object]]
         else:
             continue
 
-        approved.append(
-            {
-                **item,
-                "decision": decision,
-                "final_bullet": _resume_bullet_from_claim(final_bullet),
-            }
+        evaluated = _evaluate_approval_item(item, decision, final_bullet)
+        if evaluated["approval_status"] == "included":
+            approved.append(evaluated)
+        else:
+            blocked.append(evaluated)
+    return approved, blocked
+
+
+def _evaluate_approval_item(
+    item: dict[str, object],
+    decision: str,
+    final_bullet: str,
+) -> dict[str, object]:
+    original = str(item.get("original_bullet", ""))
+    suggested = str(item.get("suggested_rewrite", ""))
+    risk = str(item.get("truthfulness_risk", "low")).lower()
+    blocked_terms = list(item.get("blocked_terms", []) or [])
+    confirmation_note = str(item.get("confirmation_note", "")).strip()
+    override = bool(item.get("override_truthfulness_block", False))
+
+    if decision == "edited":
+        guardrail = _truthfulness_guardrail(
+            original=original,
+            suggested=final_bullet,
+            evidence_text=f"{original}\n{suggested}",
         )
-    return approved
+        risk = str(guardrail["truthfulness_risk"])
+        blocked_terms = list(guardrail["blocked_terms"])
+
+    approval_status = "included"
+    block_reason = ""
+    if risk == "medium" and not confirmation_note:
+        approval_status = "blocked"
+        block_reason = "Medium-risk item requires confirmation_note before inclusion."
+    elif risk == "high" and not override:
+        approval_status = "blocked"
+        block_reason = "High-risk item requires override_truthfulness_block: true before inclusion."
+
+    return {
+        **item,
+        "decision": decision,
+        "final_bullet": _resume_bullet_from_claim(final_bullet),
+        "truthfulness_risk": risk,
+        "blocked_terms": blocked_terms,
+        "confirmation_note": confirmation_note,
+        "override_truthfulness_block": override,
+        "approval_status": approval_status,
+        "block_reason": block_reason,
+    }
 
 
 def _render_approved_resume(
@@ -804,6 +854,7 @@ def _render_approved_resume(
 def _render_approval_summary(
     review: dict[str, object],
     approved_items: list[dict[str, object]],
+    blocked_items: list[dict[str, object]],
 ) -> str:
     items = review.get("review_items", []) or []
     counts = {
@@ -829,6 +880,7 @@ def _render_approval_summary(
         f"- Pending: {counts['pending']}",
         f"- Other: {counts['other']}",
         f"- Included in approved resume: {len(approved_items)}",
+        f"- Blocked by truthfulness guardrail: {len(blocked_items)}",
         "",
         "## Included Items",
         "",
@@ -837,6 +889,14 @@ def _render_approval_summary(
         lines.extend(
             f"- {item.get('id', 'item')}: {item['decision']} ({item.get('confidence', 'unknown')})"
             for item in approved_items
+        )
+    else:
+        lines.append("- None.")
+    lines.extend(["", "## Blocked Items", ""])
+    if blocked_items:
+        lines.extend(
+            f"- {item.get('id', 'item')}: {item.get('block_reason', 'blocked')}"
+            for item in blocked_items
         )
     else:
         lines.append("- None.")
@@ -854,6 +914,40 @@ def _render_approval_summary(
     else:
         lines.append("- None.")
     lines.append("")
+    return "\n".join(lines)
+
+
+def _render_blocked_items(
+    review: dict[str, object],
+    blocked_items: list[dict[str, object]],
+) -> str:
+    lines = [
+        f"# Blocked Items: {(review.get('job') or {}).get('title', 'Target Role')}",
+        "",
+        "These items were marked approved or edited, but were not included because the truthfulness guardrail needs more confirmation.",
+        "",
+    ]
+    if not blocked_items:
+        lines.append("No items were blocked.")
+        lines.append("")
+        return "\n".join(lines)
+
+    for item in blocked_items:
+        lines.extend(
+            [
+                f"## {item.get('id', 'item')} - {item.get('truthfulness_risk', 'unknown')}",
+                "",
+                f"Reason: {item.get('block_reason', '')}",
+                f"Blocked terms: {_comma_join(item.get('blocked_terms', [])) or 'none'}",
+                f"Confirmation note: {item.get('confirmation_note') or 'missing'}",
+                f"Override: {item.get('override_truthfulness_block', False)}",
+                "",
+                "**Final bullet requested**",
+                "",
+                f"> {item.get('final_bullet', '')}",
+                "",
+            ]
+        )
     return "\n".join(lines)
 
 
