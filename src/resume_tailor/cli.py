@@ -523,6 +523,11 @@ def _build_bullet_review(
             continue
         support = _support_for_requirement(best_requirement, evidence_text)
         suggested = _suggest_bullet_rewrite(bullet, best_requirement, jd_analysis)
+        guardrail = _truthfulness_guardrail(
+            original=bullet,
+            suggested=suggested,
+            evidence_text=evidence_text,
+        )
         review_items.append(
             {
                 "id": f"BR-{len(review_items) + 1:03d}",
@@ -533,6 +538,9 @@ def _build_bullet_review(
                 "reason_for_change": _reason_for_bullet_change(bullet, best_requirement),
                 "supporting_evidence": support["evidence"],
                 "confidence": support["confidence"],
+                "truthfulness_risk": guardrail["truthfulness_risk"],
+                "blocked_terms": guardrail["blocked_terms"],
+                "confirmation_prompt": guardrail["confirmation_prompt"],
                 "decision": "pending",
                 "user_edit": "",
             }
@@ -600,6 +608,104 @@ def _reason_for_bullet_change(bullet: str, requirement: dict[str, object]) -> st
     )
 
 
+def _truthfulness_guardrail(
+    original: str,
+    suggested: str,
+    evidence_text: str,
+) -> dict[str, object]:
+    original_lower = original.lower()
+    suggested_lower = suggested.lower()
+    introduced_terms = [
+        term
+        for term in _RISKY_CLAIM_TERMS
+        if term in suggested_lower and term not in original_lower and term not in evidence_text
+    ]
+    introduced_metrics = _introduced_metric_claims(original_lower, suggested_lower)
+    risky_verb_pairs = _introduced_verb_inflation(original_lower, suggested_lower)
+
+    blocked_terms = _dedupe_preserve_order(
+        [*introduced_terms, *introduced_metrics, *risky_verb_pairs]
+    )
+
+    if introduced_metrics or risky_verb_pairs:
+        risk = "high"
+    elif introduced_terms:
+        risk = "medium"
+    else:
+        risk = "low"
+
+    prompt = ""
+    if risk == "high":
+        prompt = (
+            "Confirm this rewrite does not invent metrics, ownership, people management, "
+            "certifications, tools, titles, or scope before approving."
+        )
+    elif risk == "medium":
+        prompt = "Confirm the newly introduced scope/tool/seniority wording is directly supported."
+
+    return {
+        "truthfulness_risk": risk,
+        "blocked_terms": blocked_terms,
+        "confirmation_prompt": prompt,
+    }
+
+
+_RISKY_CLAIM_TERMS = [
+    "managed engineers",
+    "managed a team",
+    "people manager",
+    "owned p&l",
+    "owned budget",
+    "budget forecasting",
+    "executive",
+    "global",
+    "enterprise",
+    "multi-team",
+    "director",
+    "vp",
+    "scrum master",
+    "safe",
+    "workday",
+    "salesforce",
+    "sap",
+    "payroll",
+    "hr systems",
+    "finance systems",
+]
+
+
+_VERB_INFLATION_RULES = [
+    (["partnered", "supported", "worked with", "contributed"], "managed"),
+    (["supported", "contributed", "participated"], "owned"),
+    (["helped", "supported", "participated"], "led"),
+    (["partnered", "worked with"], "directed"),
+]
+
+
+def _introduced_metric_claims(original_lower: str, suggested_lower: str) -> list[str]:
+    if _has_metric(suggested_lower) and not _has_metric(original_lower):
+        return ["new metric claim"]
+    metric_verbs = ["increased", "reduced", "saved", "improved by", "grew", "decreased"]
+    return [
+        verb
+        for verb in metric_verbs
+        if verb in suggested_lower and verb not in original_lower
+    ]
+
+
+def _has_metric(text: str) -> bool:
+    return bool(re.search(r"(\$|\b\d+%|\b\d+x\b|\b\d+\s*(million|billion|k|m)\b)", text))
+
+
+def _introduced_verb_inflation(original_lower: str, suggested_lower: str) -> list[str]:
+    findings = []
+    for weaker_verbs, stronger_verb in _VERB_INFLATION_RULES:
+        if stronger_verb in suggested_lower and stronger_verb not in original_lower:
+            if any(weak in original_lower for weak in weaker_verbs):
+                findings.append(f"{', '.join(weaker_verbs)} -> {stronger_verb}")
+    return findings
+
+
 def _render_bullet_review_markdown(review: dict[str, object]) -> str:
     job = review.get("job", {})
     items = review.get("review_items", [])
@@ -629,6 +735,9 @@ def _render_bullet_review_markdown(review: dict[str, object]) -> str:
                 f"Related JD requirement: {item['related_jd_requirement']}",
                 f"Reason: {item['reason_for_change']}",
                 f"Supporting evidence: {item['supporting_evidence'] or 'not found'}",
+                f"Truthfulness risk: {item.get('truthfulness_risk', 'unknown')}",
+                f"Blocked terms: {_comma_join(item.get('blocked_terms', [])) or 'none'}",
+                f"Confirmation prompt: {item.get('confirmation_prompt') or 'none'}",
                 f"Decision: {item['decision']}",
                 "",
             ]

@@ -1,6 +1,6 @@
 from click.testing import CliRunner
 
-from resume_tailor.cli import main
+from resume_tailor.cli import _truthfulness_guardrail, main
 
 
 def test_cli_help() -> None:
@@ -266,6 +266,7 @@ PROFESSIONAL EXPERIENCE
     review = (target_dir / "bullet_review.md").read_text(encoding="utf-8")
     assert "Original bullet" in review
     assert "Suggested rewrite" in review
+    assert "Truthfulness risk" in review
     assert "Decision: pending" in review
 
 
@@ -326,3 +327,27 @@ review_items:
     assert "Rejected rewrite" not in resume
     assert "Pending rewrite" not in resume
     assert "Included in approved resume: 2" in summary
+
+
+def test_truthfulness_guardrail_flags_risky_verb_inflation() -> None:
+    guardrail = _truthfulness_guardrail(
+        original="Partnered with engineering teams on rollout planning.",
+        suggested="Managed engineering teams on rollout planning.",
+        evidence_text="partnered with engineering teams on rollout planning.",
+    )
+
+    assert guardrail["truthfulness_risk"] == "high"
+    assert "partnered, supported, worked with, contributed -> managed" in guardrail["blocked_terms"]
+    assert "Confirm" in guardrail["confirmation_prompt"]
+
+
+def test_truthfulness_guardrail_flags_unsupported_tool_claim() -> None:
+    guardrail = _truthfulness_guardrail(
+        original="Led delivery governance for a platform launch.",
+        suggested="Led Salesforce delivery governance for a global platform launch.",
+        evidence_text="led delivery governance for a platform launch.",
+    )
+
+    assert guardrail["truthfulness_risk"] == "medium"
+    assert "salesforce" in guardrail["blocked_terms"]
+    assert "global" in guardrail["blocked_terms"]

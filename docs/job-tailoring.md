@@ -67,6 +67,14 @@ This writes:
 
 Each review item includes the original bullet, suggested rewrite, related JD requirement, reason, supporting evidence, confidence label, and `pending` decision.
 
+The review also includes truthfulness guardrail fields:
+
+- `truthfulness_risk`
+- `blocked_terms`
+- `confirmation_prompt`
+
+Treat medium/high risk items as confirmation prompts, not ready-to-use resume claims.
+
 After review, change decisions in `bullet_review.yml`:
 
 ```yaml
