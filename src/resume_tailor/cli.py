@@ -160,7 +160,25 @@ def build_profile() -> None:
     show_default=True,
     help="Directory where tailored artifacts will be written.",
 )
-def tailor_job(job_posting_path: Path, profile_path: Path, output_dir: Path) -> None:
+@click.option(
+    "--base-resume",
+    type=click.Choice(["pm", "tpm"], case_sensitive=False),
+    default=None,
+    help="Use a private PM or TPM base resume when generating stronger tailored artifacts.",
+)
+@click.option(
+    "--base-resume-path",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Use a specific private base resume text or PDF file.",
+)
+def tailor_job(
+    job_posting_path: Path,
+    profile_path: Path,
+    output_dir: Path,
+    base_resume: str | None,
+    base_resume_path: Path | None,
+) -> None:
     """Generate a tailored resume draft and review notes for a job posting."""
     profile = yaml.safe_load(profile_path.read_text(encoding="utf-8")) or {}
     job_text = job_posting_path.read_text(encoding="utf-8")
@@ -192,6 +210,35 @@ def tailor_job(job_posting_path: Path, profile_path: Path, output_dir: Path) -> 
         encoding="utf-8",
     )
 
+    if base_resume or base_resume_path:
+        resolved_base_path = base_resume_path or _resolve_base_resume(base_resume or "")
+        base_text = _load_resume_text(resolved_base_path)
+        cleaned_base = _clean_resume_text(base_text)
+        rewrite_plan_path = job_output_dir / "rewrite_plan.md"
+        tailored_resume_path = job_output_dir / "resume_tailored.md"
+        checklist_path = job_output_dir / "verification_checklist.md"
+
+        rewrite_plan_path.write_text(
+            _render_rewrite_plan(job=job, alignment=alignment, gaps=gaps, base_path=resolved_base_path),
+            encoding="utf-8",
+        )
+        tailored_resume_path.write_text(
+            _render_base_preserving_resume(
+                profile=profile,
+                job=job,
+                alignment=alignment,
+                base_resume_text=cleaned_base,
+            ),
+            encoding="utf-8",
+        )
+        checklist_path.write_text(
+            _render_verification_checklist(profile=profile, job=job, gaps=gaps),
+            encoding="utf-8",
+        )
+        click.echo(f"Wrote base-preserving tailored resume to {tailored_resume_path}")
+        click.echo(f"Wrote rewrite plan to {rewrite_plan_path}")
+        click.echo(f"Wrote verification checklist to {checklist_path}")
+
     click.echo(f"Wrote tailored resume draft to {resume_path}")
     click.echo(f"Wrote tailoring notes to {notes_path}")
 
@@ -221,6 +268,185 @@ def _parse_job_posting(text: str, path: Path) -> dict[str, object]:
         "keywords": _job_keywords(text),
         "summary": _first_sentences(text, limit=5),
     }
+
+
+def _resolve_base_resume(base_resume: str) -> Path:
+    normalized = base_resume.lower()
+    label = "TPM" if normalized == "tpm" else "PM"
+    candidates = [
+        *sorted((EXTRACTED_ROOT / "resumes").glob(f"*{label}*.txt")),
+        *sorted((SOURCE_ROOT / "resumes").glob(f"*{label}*.pdf")),
+    ]
+    if not candidates:
+        raise click.ClickException(
+            f"Could not find a private {label} resume. "
+            "Run extract-sources or pass --base-resume-path."
+        )
+    return candidates[0]
+
+
+def _load_resume_text(path: Path) -> str:
+    if path.suffix.lower() == ".pdf":
+        reader = PdfReader(str(path))
+        return "\n\n".join(page.extract_text() or "" for page in reader.pages)
+    return path.read_text(encoding="utf-8")
+
+
+def _clean_resume_text(text: str) -> str:
+    replacements = {
+        "â€¢": "\n-",
+        "•": "\n-",
+        "Â°": "\n-",
+        "\u00a0": " ",
+    }
+    for source, target in replacements.items():
+        text = text.replace(source, target)
+
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n\s*\n\s*\n+", "\n\n", text)
+    text = re.sub(r"\n\s+", "\n", text)
+
+    # PDF extraction often puts every word on its own line. Join short fragments while
+    # preserving bullets and major resume sections.
+    section_names = {
+        "summary",
+        "professional experience",
+        "education & certifications",
+        "technical toolkit",
+    }
+    joined_lines = []
+    current = ""
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line:
+            if current:
+                joined_lines.append(current.strip())
+                current = ""
+            joined_lines.append("")
+            continue
+        lower = line.lower()
+        starts_new = (
+            line.startswith("-")
+            or lower in section_names
+            or line.isupper()
+            or re.search(r"\b(19|20)\d{2}\b", line)
+        )
+        if starts_new:
+            if current:
+                joined_lines.append(current.strip())
+            current = line
+        else:
+            current = f"{current} {line}".strip()
+    if current:
+        joined_lines.append(current.strip())
+
+    cleaned = "\n".join(joined_lines)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    return cleaned.strip()
+
+
+def _render_base_preserving_resume(
+    profile: dict[str, object],
+    job: dict[str, object],
+    alignment: list[dict[str, object]],
+    base_resume_text: str,
+) -> str:
+    name = profile.get("name", "Candidate")
+    headline = (profile.get("positioning") or {}).get("headline", "")
+    return "\n".join(
+        [
+            f"# {name}",
+            "",
+            f"## Targeted Resume For: {job.get('title', 'Target Role')}",
+            "",
+            "## Targeted Summary",
+            "",
+            _summary_for_job(str(headline), alignment),
+            "",
+            "## Priority Positioning",
+            "",
+            *[f"- {item['theme']}" for item in alignment[:8]],
+            "",
+            "## Base Resume Content To Preserve",
+            "",
+            base_resume_text,
+            "",
+            "## Final Editing Notes",
+            "",
+            "- Use this as a base-preserving rewrite, not a blank-slate generated resume.",
+            "- Keep the original resume's strongest quantified bullets unless they are irrelevant or confidential.",
+            "- Fold the targeted summary and priority positioning into the final resume format.",
+            "",
+        ]
+    )
+
+
+def _render_rewrite_plan(
+    job: dict[str, object],
+    alignment: list[dict[str, object]],
+    gaps: list[str],
+    base_path: Path,
+) -> str:
+    lines = [
+        f"# Rewrite Plan: {job.get('title', 'Target Role')}",
+        "",
+        f"Base resume: `{base_path}`",
+        "",
+        "## Keep Strong",
+        "",
+        "- Preserve quantified impact, launch scope, cross-functional ownership, and recognizably senior TPM outcomes.",
+        "- Preserve company chronology and the strongest bullets from the selected base resume.",
+        "",
+        "## Emphasize For This Role",
+        "",
+    ]
+    lines.extend(f"- {item['theme']}" for item in alignment[:10])
+    lines.extend(["", "## Be Careful With", ""])
+    if gaps:
+        lines.extend(f"- Do not overclaim `{gap}` unless the base resume or profile supports it." for gap in gaps)
+    else:
+        lines.append("- No major first-pass keyword gaps found.")
+    lines.extend(
+        [
+            "",
+            "## Editing Moves",
+            "",
+            "- Tune the summary to mirror the role's highest-value language.",
+            "- Move the most relevant governance, risk, dependency, and executive-communication bullets higher.",
+            "- Keep generated wording subordinate to verified source material.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _render_verification_checklist(
+    profile: dict[str, object],
+    job: dict[str, object],
+    gaps: list[str],
+) -> str:
+    verification = profile.get("verification_needed") or []
+    lines = [
+        f"# Verification Checklist: {job.get('title', 'Target Role')}",
+        "",
+        "## Always Verify",
+        "",
+        "- Every metric and business impact claim.",
+        "- Every certification, tool, platform, and methodology claim.",
+        "- Every company-specific detail for confidentiality.",
+        "- Final page length and formatting.",
+        "",
+        "## Profile Warnings",
+        "",
+    ]
+    lines.extend(f"- {item}" for item in verification)
+    lines.extend(["", "## Job-Specific Gaps To Confirm", ""])
+    if gaps:
+        lines.extend(f"- {gap}" for gap in gaps)
+    else:
+        lines.append("- No major first-pass gaps found.")
+    lines.append("")
+    return "\n".join(lines)
 
 
 def _build_alignment(profile: dict[str, object], job_text: str) -> list[dict[str, object]]:

@@ -23,6 +23,24 @@ The command writes two files under `outputs/<job-name>/`:
 - `resume_draft.md`
 - `tailoring_notes.md`
 
+For a real application, use a private base resume:
+
+```powershell
+py -m resume_tailor tailor-job private\job-postings\example-job.md --base-resume tpm
+```
+
+or:
+
+```powershell
+py -m resume_tailor tailor-job private\job-postings\example-job.md --base-resume pm
+```
+
+This adds:
+
+- `resume_tailored.md`
+- `rewrite_plan.md`
+- `verification_checklist.md`
+
 ## Review Rules
 
 Treat the generated resume as a draft. Before applying:
