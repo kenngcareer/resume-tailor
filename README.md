@@ -1,58 +1,72 @@
 # Resume Tailor
 
-Resume Tailor is a local-first career portfolio assistant. It helps turn a job posting plus your verified career evidence into a customized resume draft for that role.
+[![CI](https://github.com/kenngcareer/resume-tailor/actions/workflows/ci.yml/badge.svg)](https://github.com/kenngcareer/resume-tailor/actions/workflows/ci.yml)
 
-The goal is not to invent experience. The goal is to pick the strongest truthful evidence, adjust language to the role, and produce a resume that is easy for recruiters and hiring managers to map to the job.
+Resume Tailor is a local-first resume tailoring workflow for job seekers who want customized resumes without invented claims.
 
-For real applications, the strongest path is to start from the best existing resume version and tailor it. The generated Markdown draft is a matching aid and review artifact, not automatically the final resume.
+It turns a job posting plus verified career evidence into an explainable, reviewable, ATS-safe resume draft. The product thesis is simple: users will trust the resume tool that shows exactly why each change was suggested and blocks unsupported claims before they reach the final resume.
 
-## MVP Workflow
+## Why This Exists
 
-1. Add private source material under `private/source-materials/`.
-2. Create or update your normalized career profile at `private/profile.yml`.
-3. Save a job posting in `private/job-postings/`.
-4. Run the tailor workflow with `py -m resume_tailor tailor-job private\job-postings\your-job.md`.
-5. Review the generated resume and rationale in `outputs/`.
+Generic AI resume tools can write fluent bullets, but they often blur the line between stronger framing and dishonest inflation. Resume Tailor is designed around two differentiators:
 
-## Public Demo
+- Truth-preserving tailoring: suggestions are grounded in source resume/profile evidence.
+- Explainable review: every suggested bullet rewrite includes the original bullet, related job requirement, reason, supporting evidence, confidence label, and approval state.
 
-Run the full workflow with fake data:
+## Quick Demo
+
+Run the full workflow with fake public data:
 
 ```powershell
+py -m pip install -e .[dev]
 py -m resume_tailor demo
 ```
 
-This writes sample artifacts under `demo-output/`, including JD analysis, match report, bullet review, approved resume Markdown, and ATS-safe DOCX export.
+Demo inputs live in `examples/demo/`. Generated demo artifacts are written to `demo-output/` and ignored by git.
 
-## Source Materials
+## Workflow
 
-Useful inputs include:
+```text
+Job posting + base resume + profile
+        |
+        v
+JD analyzer
+        |
+        v
+Explainable match report
+        |
+        v
+Side-by-side bullet review
+        |
+        v
+Approve / reject / edit
+        |
+        v
+Truthfulness guardrail
+        |
+        v
+Approved Markdown resume
+        |
+        v
+ATS-safe DOCX export
+```
 
-- PM and TPM resume versions
-- Career portfolio documents
-- Peer and manager feedback
-- LinkedIn profile export or copy
-- Project writeups
-- STAR stories
-- Promotion packets or performance review excerpts
+## Current Features
 
-Keep raw source material private. This repo is configured so `private/` and `outputs/` are not committed by default.
+- PDF text extraction for private source materials.
+- Structured private career profile generation.
+- Job description analyzer for requirements, responsibilities, tools, seniority signals, and keywords.
+- Explainable match report with score, strengths, partial matches, and missing evidence.
+- Base-resume-aware tailoring artifacts.
+- Side-by-side bullet review workflow.
+- Truthfulness guardrails for risky rewrites.
+- Enforced approval blocking for medium/high risk claims.
+- Approved resume Markdown generation.
+- ATS-safe DOCX export.
+- Public fake-data demo.
+- GitHub Actions CI.
 
-## What This Should Produce
-
-For each job, the tool should generate:
-
-- A customized resume draft
-- A concise tailoring rationale
-- A gap analysis
-- Suggested interview story themes
-- A checklist of claims that need human verification
-
-## Current Status
-
-This repo has a first-pass offline workflow for extracting PDF text, building a private profile draft, and generating job-specific resume drafts.
-
-## Commands
+## Core Commands
 
 ```powershell
 py -m resume_tailor init-private
@@ -64,6 +78,53 @@ py -m resume_tailor analyze-job private\job-postings\your-job.md --base-resume t
 py -m resume_tailor review-diff private\job-postings\your-job.md --base-resume tpm
 py -m resume_tailor apply-approved outputs\your-job\bullet_review.yml
 py -m resume_tailor export-docx outputs\your-job\resume_approved.md
-py -m resume_tailor tailor-job private\job-postings\your-job.md
-py -m resume_tailor tailor-job private\job-postings\your-job.md --base-resume tpm
 ```
+
+## Privacy Model
+
+The repo is designed to keep real career data local:
+
+- `private/` is ignored by git.
+- `outputs/` is ignored by git.
+- `demo-output/` is ignored by git.
+- Public examples use fake data only.
+
+Raw resumes, LinkedIn exports, colleague feedback, generated tailored resumes, and job-specific outputs should stay in ignored local folders unless intentionally sanitized for public sharing.
+
+See [docs/privacy.md](docs/privacy.md).
+
+## Review Item Shape
+
+The guided review workflow creates items like:
+
+```yaml
+original_bullet: Led launch governance across product and engineering.
+suggested_rewrite: Led launch governance aligned to executive communication and risk management needs.
+related_jd_requirement: Ability to lead executive communication and risk management.
+reason_for_change: This bullet already has relevant evidence.
+supporting_evidence: executive, risk
+confidence: Strong
+truthfulness_risk: low
+blocked_terms: []
+confirmation_prompt: ''
+decision: pending
+user_edit: ''
+```
+
+Approved and edited items can be applied into a reviewed resume. Medium-risk items require a confirmation note. High-risk items are blocked unless explicitly overridden.
+
+## Project Docs
+
+- [Architecture](docs/architecture.md)
+- [Job tailoring workflow](docs/job-tailoring.md)
+- [Privacy model](docs/privacy.md)
+- [PRD roadmap](docs/prd-roadmap.md)
+
+## Roadmap
+
+- Public sample output snapshots.
+- Stronger bullet rewrite generation.
+- Better section-level resume reconstruction.
+- Optional LLM adapter with explicit privacy controls.
+- Render-based DOCX visual QA when LibreOffice is available.
+- Web UI for approve/reject/edit review.
