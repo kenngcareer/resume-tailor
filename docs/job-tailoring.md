@@ -67,6 +67,30 @@ This writes:
 
 Each review item includes the original bullet, suggested rewrite, related JD requirement, reason, supporting evidence, confidence label, and `pending` decision.
 
+After review, change decisions in `bullet_review.yml`:
+
+```yaml
+decision: approved
+```
+
+or:
+
+```yaml
+decision: edited
+user_edit: "Your revised bullet."
+```
+
+Then generate reviewed artifacts:
+
+```powershell
+py -m resume_tailor apply-approved outputs\example-job\bullet_review.yml
+```
+
+This writes:
+
+- `resume_approved.md`
+- `approval_summary.md`
+
 ## Review Rules
 
 Treat the generated resume as a draft. Before applying:

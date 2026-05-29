@@ -396,6 +396,37 @@ def review_diff(
     click.echo(f"Wrote bullet review Markdown to {review_md_path}")
 
 
+@main.command()
+@click.argument("bullet_review_path", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--output-dir",
+    type=click.Path(path_type=Path),
+    default=None,
+    help="Directory where approved artifacts will be written. Defaults to the review file directory.",
+)
+def apply_approved(bullet_review_path: Path, output_dir: Path | None) -> None:
+    """Generate resume artifacts from approved or edited review items."""
+    review = yaml.safe_load(bullet_review_path.read_text(encoding="utf-8")) or {}
+    approved_items = _approved_review_items(review)
+    target_dir = output_dir or bullet_review_path.parent
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    resume_path = target_dir / "resume_approved.md"
+    summary_path = target_dir / "approval_summary.md"
+
+    resume_path.write_text(
+        _render_approved_resume(review, approved_items),
+        encoding="utf-8",
+    )
+    summary_path.write_text(
+        _render_approval_summary(review, approved_items),
+        encoding="utf-8",
+    )
+
+    click.echo(f"Wrote approved resume draft to {resume_path}")
+    click.echo(f"Wrote approval summary to {summary_path}")
+
+
 def _document_summary(relative_path: Path, text: str) -> dict[str, object]:
     return {
         "path": str(relative_path).replace("\\", "/"),
@@ -604,6 +635,116 @@ def _render_bullet_review_markdown(review: dict[str, object]) -> str:
         )
     if not items:
         lines.extend(["No matching bullets found for review.", ""])
+    return "\n".join(lines)
+
+
+def _approved_review_items(review: dict[str, object]) -> list[dict[str, object]]:
+    approved = []
+    for item in review.get("review_items", []) or []:
+        decision = str(item.get("decision", "pending")).lower()
+        if decision == "approved":
+            final_bullet = str(item.get("suggested_rewrite", "")).strip()
+        elif decision == "edited":
+            final_bullet = str(item.get("user_edit", "")).strip()
+            if not final_bullet:
+                continue
+        else:
+            continue
+
+        approved.append(
+            {
+                **item,
+                "decision": decision,
+                "final_bullet": _resume_bullet_from_claim(final_bullet),
+            }
+        )
+    return approved
+
+
+def _render_approved_resume(
+    review: dict[str, object],
+    approved_items: list[dict[str, object]],
+) -> str:
+    job = review.get("job", {})
+    lines = [
+        f"# Reviewed Resume Bullets: {job.get('title', 'Target Role')}",
+        "",
+        "These bullets come only from review items marked `approved` or `edited`.",
+        "",
+        "## Approved Bullets",
+        "",
+    ]
+    if approved_items:
+        lines.extend(f"- {item['final_bullet']}" for item in approved_items)
+    else:
+        lines.append("- No approved or edited bullets found.")
+    lines.extend(
+        [
+            "",
+            "## Final Review",
+            "",
+            "- Confirm each approved bullet is true and safe to share.",
+            "- Merge these bullets into the selected base resume format before applying.",
+            "- Keep rejected and pending items out of the application resume.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _render_approval_summary(
+    review: dict[str, object],
+    approved_items: list[dict[str, object]],
+) -> str:
+    items = review.get("review_items", []) or []
+    counts = {
+        "approved": 0,
+        "edited": 0,
+        "rejected": 0,
+        "pending": 0,
+        "other": 0,
+    }
+    for item in items:
+        decision = str(item.get("decision", "pending")).lower()
+        if decision in counts:
+            counts[decision] += 1
+        else:
+            counts["other"] += 1
+
+    lines = [
+        f"# Approval Summary: {(review.get('job') or {}).get('title', 'Target Role')}",
+        "",
+        f"- Approved: {counts['approved']}",
+        f"- Edited: {counts['edited']}",
+        f"- Rejected: {counts['rejected']}",
+        f"- Pending: {counts['pending']}",
+        f"- Other: {counts['other']}",
+        f"- Included in approved resume: {len(approved_items)}",
+        "",
+        "## Included Items",
+        "",
+    ]
+    if approved_items:
+        lines.extend(
+            f"- {item.get('id', 'item')}: {item['decision']} ({item.get('confidence', 'unknown')})"
+            for item in approved_items
+        )
+    else:
+        lines.append("- None.")
+    lines.extend(["", "## Not Included", ""])
+    excluded = [
+        item
+        for item in items
+        if str(item.get("decision", "pending")).lower() not in {"approved", "edited"}
+    ]
+    if excluded:
+        lines.extend(
+            f"- {item.get('id', 'item')}: {item.get('decision', 'pending')}"
+            for item in excluded
+        )
+    else:
+        lines.append("- None.")
+    lines.append("")
     return "\n".join(lines)
 
 

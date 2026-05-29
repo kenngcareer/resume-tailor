@@ -11,6 +11,7 @@ def test_cli_help() -> None:
     assert "tailor-job" in result.output
     assert "analyze-job" in result.output
     assert "review-diff" in result.output
+    assert "apply-approved" in result.output
 
 
 def test_tailor_job_writes_outputs(tmp_path) -> None:
@@ -266,3 +267,62 @@ PROFESSIONAL EXPERIENCE
     assert "Original bullet" in review
     assert "Suggested rewrite" in review
     assert "Decision: pending" in review
+
+
+def test_apply_approved_uses_only_approved_and_edited_items(tmp_path) -> None:
+    review_path = tmp_path / "bullet_review.yml"
+    output_dir = tmp_path / "approved"
+
+    review_path.write_text(
+        """
+job:
+  title: Senior Technical Program Manager
+  company: ExampleCo
+base_resume: base_resume.txt
+review_items:
+  - id: BR-001
+    original_bullet: Original one.
+    suggested_rewrite: Approved rewrite for governance.
+    confidence: Strong
+    decision: approved
+    user_edit: ''
+  - id: BR-002
+    original_bullet: Original two.
+    suggested_rewrite: Suggested rewrite should not be used.
+    confidence: Medium
+    decision: edited
+    user_edit: Edited rewrite for risk management.
+  - id: BR-003
+    original_bullet: Original three.
+    suggested_rewrite: Rejected rewrite.
+    confidence: Strong
+    decision: rejected
+    user_edit: ''
+  - id: BR-004
+    original_bullet: Original four.
+    suggested_rewrite: Pending rewrite.
+    confidence: Needs Confirmation
+    decision: pending
+    user_edit: ''
+""".strip(),
+        encoding="utf-8",
+    )
+
+    result = CliRunner().invoke(
+        main,
+        [
+            "apply-approved",
+            str(review_path),
+            "--output-dir",
+            str(output_dir),
+        ],
+    )
+
+    assert result.exit_code == 0
+    resume = (output_dir / "resume_approved.md").read_text(encoding="utf-8")
+    summary = (output_dir / "approval_summary.md").read_text(encoding="utf-8")
+    assert "Approved rewrite for governance" in resume
+    assert "Edited rewrite for risk management" in resume
+    assert "Rejected rewrite" not in resume
+    assert "Pending rewrite" not in resume
+    assert "Included in approved resume: 2" in summary

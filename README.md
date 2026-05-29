@@ -51,6 +51,7 @@ py -m resume_tailor build-profile
 py -m resume_tailor inspect-profile private\profile.yml
 py -m resume_tailor analyze-job private\job-postings\your-job.md --base-resume tpm
 py -m resume_tailor review-diff private\job-postings\your-job.md --base-resume tpm
+py -m resume_tailor apply-approved outputs\your-job\bullet_review.yml
 py -m resume_tailor tailor-job private\job-postings\your-job.md
 py -m resume_tailor tailor-job private\job-postings\your-job.md --base-resume tpm
 ```
