@@ -243,6 +243,82 @@ def tailor_job(
     click.echo(f"Wrote tailoring notes to {notes_path}")
 
 
+@main.command()
+@click.argument("job_posting_path", type=click.Path(exists=True, path_type=Path))
+@click.option(
+    "--profile",
+    "profile_path",
+    type=click.Path(exists=True, path_type=Path),
+    default=PRIVATE_ROOT / "profile.yml",
+    show_default=True,
+    help="Structured private career profile to match against.",
+)
+@click.option(
+    "--base-resume",
+    type=click.Choice(["pm", "tpm"], case_sensitive=False),
+    default=None,
+    help="Include a private PM or TPM base resume in match analysis.",
+)
+@click.option(
+    "--base-resume-path",
+    type=click.Path(exists=True, path_type=Path),
+    default=None,
+    help="Include a specific private base resume text or PDF file in match analysis.",
+)
+@click.option(
+    "--output-dir",
+    type=click.Path(path_type=Path),
+    default=OUTPUTS_ROOT,
+    show_default=True,
+    help="Directory where analysis artifacts will be written.",
+)
+def analyze_job(
+    job_posting_path: Path,
+    profile_path: Path,
+    base_resume: str | None,
+    base_resume_path: Path | None,
+    output_dir: Path,
+) -> None:
+    """Analyze a job description and explain resume match quality."""
+    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8")) or {}
+    job_text = job_posting_path.read_text(encoding="utf-8")
+    job = _parse_job_posting(job_text, job_posting_path)
+    jd_analysis = _analyze_job_description(job_text, job)
+
+    resume_text = ""
+    resolved_base_path = None
+    if base_resume or base_resume_path:
+        resolved_base_path = base_resume_path or _resolve_base_resume(base_resume or "")
+        resume_text = _clean_resume_text(_load_resume_text(resolved_base_path))
+
+    match_report = _build_match_report(profile, resume_text, jd_analysis)
+
+    job_slug = _slugify(str(job["title"]) or job_posting_path.stem)
+    job_output_dir = output_dir / job_slug
+    job_output_dir.mkdir(parents=True, exist_ok=True)
+
+    jd_analysis_path = job_output_dir / "jd_analysis.yml"
+    match_report_path = job_output_dir / "match_report.md"
+
+    jd_analysis_path.write_text(
+        yaml.safe_dump(jd_analysis, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    match_report_path.write_text(
+        _render_match_report(
+            job=job,
+            jd_analysis=jd_analysis,
+            match_report=match_report,
+            source=job_posting_path,
+            base_resume_path=resolved_base_path,
+        ),
+        encoding="utf-8",
+    )
+
+    click.echo(f"Wrote JD analysis to {jd_analysis_path}")
+    click.echo(f"Wrote match report to {match_report_path}")
+
+
 def _document_summary(relative_path: Path, text: str) -> dict[str, object]:
     return {
         "path": str(relative_path).replace("\\", "/"),
@@ -267,6 +343,58 @@ def _parse_job_posting(text: str, path: Path) -> dict[str, object]:
         "company": company,
         "keywords": _job_keywords(text),
         "summary": _first_sentences(text, limit=5),
+    }
+
+
+def _analyze_job_description(text: str, job: dict[str, object]) -> dict[str, object]:
+    bullets = _extract_bullets(text)
+    lower = text.lower()
+    return {
+        "title": job.get("title", ""),
+        "company": job.get("company", ""),
+        "summary": job.get("summary", ""),
+        "required_skills": _extract_requirements(text, bullets, required=True),
+        "preferred_skills": _extract_requirements(text, bullets, required=False),
+        "responsibilities": _extract_responsibilities(bullets),
+        "tools": _matched_terms(lower, _TOOL_TERMS),
+        "delivery_methods": _matched_terms(lower, _DELIVERY_METHOD_TERMS),
+        "seniority_signals": _matched_terms(lower, _SENIORITY_SIGNAL_TERMS),
+        "industry_keywords": _matched_terms(lower, _INDUSTRY_TERMS),
+        "keywords": _job_keywords(text),
+    }
+
+
+def _build_match_report(
+    profile: dict[str, object],
+    resume_text: str,
+    jd_analysis: dict[str, object],
+) -> dict[str, object]:
+    evidence_text = _profile_to_match_text(profile, resume_text)
+    requirements = _requirements_for_scoring(jd_analysis)
+    rows = []
+    for requirement in requirements:
+        support = _support_for_requirement(requirement, evidence_text)
+        rows.append(
+            {
+                "requirement": requirement["text"],
+                "category": requirement["category"],
+                "confidence": support["confidence"],
+                "evidence": support["evidence"],
+                "explanation": support["explanation"],
+                "weight": requirement["weight"],
+            }
+        )
+
+    possible = sum(int(row["weight"]) for row in rows) or 1
+    earned = sum(_confidence_points(str(row["confidence"])) * int(row["weight"]) for row in rows)
+    score = round(earned / (possible * 3) * 100)
+
+    return {
+        "score": score,
+        "strengths": [row for row in rows if row["confidence"] == "Strong"],
+        "partial_matches": [row for row in rows if row["confidence"] == "Medium"],
+        "missing_evidence": [row for row in rows if row["confidence"] in {"Needs Confirmation", "Missing"}],
+        "scored_requirements": rows,
     }
 
 
@@ -447,6 +575,309 @@ def _render_verification_checklist(
         lines.append("- No major first-pass gaps found.")
     lines.append("")
     return "\n".join(lines)
+
+
+_TOOL_TERMS = [
+    "Python",
+    "SQL",
+    "Tableau",
+    "Looker",
+    "AWS",
+    "Snowflake",
+    "Kafka",
+    "Spark",
+    "Airflow",
+    "Salesforce",
+    "Workday",
+    "Oracle",
+    "SAP",
+    "Jira",
+    "Confluence",
+    "Figma",
+    "LLM",
+    "AI",
+    "ML",
+]
+
+_DELIVERY_METHOD_TERMS = [
+    "Agile",
+    "Scrum",
+    "Kanban",
+    "SAFe",
+    "PI Planning",
+    "Waterfall",
+    "hybrid delivery",
+    "roadmap",
+    "governance",
+    "risk management",
+    "dependency management",
+    "retrospective",
+]
+
+_SENIORITY_SIGNAL_TERMS = [
+    "senior",
+    "executive",
+    "leadership",
+    "stakeholder",
+    "cross-functional",
+    "matrixed",
+    "strategy",
+    "portfolio",
+    "budget",
+    "forecasting",
+    "governance",
+]
+
+_INDUSTRY_TERMS = [
+    "AI",
+    "machine learning",
+    "ads",
+    "platform",
+    "developer tools",
+    "finance",
+    "payroll",
+    "HR",
+    "employee success",
+    "data",
+    "infrastructure",
+    "identity",
+    "biometrics",
+]
+
+
+def _extract_bullets(text: str) -> list[str]:
+    bullets = []
+    for line in text.splitlines():
+        cleaned = line.strip()
+        if cleaned.startswith(("-", "*", "•")):
+            bullets.append(cleaned.lstrip("-*• ").strip())
+    return bullets
+
+
+def _extract_requirements(text: str, bullets: list[str], required: bool) -> list[str]:
+    lower_markers = (
+        ["required", "qualification", "must", "minimum"] if required else ["preferred", "nice", "bonus"]
+    )
+    selected = []
+    current_section_matches = False
+    for line in text.splitlines():
+        cleaned = line.strip(" #\t-*•")
+        if not cleaned:
+            continue
+        lower = cleaned.lower()
+        if any(marker in lower for marker in lower_markers):
+            current_section_matches = True
+            if len(cleaned.split()) > 3 and not lower.endswith("qualifications"):
+                selected.append(cleaned)
+            continue
+        if re.match(r"^[A-Z][A-Za-z &/-]{2,}:?$", cleaned) and not cleaned.startswith("-"):
+            current_section_matches = False
+        elif current_section_matches and line.strip().startswith(("-", "*", "•")):
+            selected.append(cleaned)
+
+    if not selected and required:
+        selected = [
+            bullet
+            for bullet in bullets
+            if any(word in bullet.lower() for word in ["experience", "ability", "knowledge", "lead"])
+        ]
+
+    return _dedupe_preserve_order(selected)[:12]
+
+
+def _extract_responsibilities(bullets: list[str]) -> list[str]:
+    action_words = [
+        "lead",
+        "partner",
+        "drive",
+        "define",
+        "manage",
+        "identify",
+        "facilitate",
+        "produce",
+        "coordinate",
+        "support",
+        "create",
+        "own",
+    ]
+    responsibilities = [
+        bullet
+        for bullet in bullets
+        if any(bullet.lower().startswith(word) for word in action_words)
+    ]
+    return _dedupe_preserve_order(responsibilities)[:14]
+
+
+def _matched_terms(lower_text: str, terms: list[str]) -> list[str]:
+    return [term for term in terms if term.lower() in lower_text]
+
+
+def _requirements_for_scoring(jd_analysis: dict[str, object]) -> list[dict[str, object]]:
+    weighted_sections = [
+        ("required_skills", 3),
+        ("responsibilities", 2),
+        ("tools", 2),
+        ("delivery_methods", 2),
+        ("seniority_signals", 1),
+        ("industry_keywords", 1),
+        ("preferred_skills", 1),
+    ]
+    requirements = []
+    seen = set()
+    for category, weight in weighted_sections:
+        for value in jd_analysis.get(category, []) or []:
+            text = str(value).strip()
+            key = text.lower()
+            if text and key not in seen:
+                seen.add(key)
+                requirements.append({"category": category, "text": text, "weight": weight})
+    return requirements[:50]
+
+
+def _profile_to_match_text(profile: dict[str, object], resume_text: str) -> str:
+    profile_parts = [
+        str(profile.get("target_roles", "")),
+        str(profile.get("positioning", "")),
+        str(profile.get("skills", "")),
+        str(profile.get("feedback_themes", "")),
+        str(profile.get("evidence_snippets", "")),
+    ]
+    return "\n".join([*profile_parts, resume_text]).lower()
+
+
+def _support_for_requirement(requirement: dict[str, object], evidence_text: str) -> dict[str, str]:
+    requirement_text = str(requirement["text"])
+    tokens = _important_tokens(requirement_text)
+    hits = [token for token in tokens if token in evidence_text]
+
+    if requirement_text.lower() in evidence_text or len(hits) >= 3:
+        confidence = "Strong"
+        explanation = "Direct wording or multiple important terms appear in the resume/profile evidence."
+    elif len(hits) >= 2:
+        confidence = "Medium"
+        explanation = "Related terms appear, but the exact requirement should be verified before using stronger wording."
+    elif len(hits) == 1:
+        confidence = "Needs Confirmation"
+        explanation = "Only a weak signal appears; a rewrite should ask the user to confirm before claiming this."
+    else:
+        confidence = "Missing"
+        explanation = "No clear supporting evidence found in the available resume/profile text."
+
+    return {
+        "confidence": confidence,
+        "evidence": ", ".join(hits[:8]) if hits else "",
+        "explanation": explanation,
+    }
+
+
+def _important_tokens(text: str) -> list[str]:
+    stop_words = {
+        "ability",
+        "across",
+        "also",
+        "and",
+        "are",
+        "deliver",
+        "experience",
+        "for",
+        "from",
+        "have",
+        "including",
+        "lead",
+        "manage",
+        "must",
+        "our",
+        "such",
+        "that",
+        "the",
+        "this",
+        "using",
+        "with",
+        "years",
+        "your",
+    }
+    tokens = re.findall(r"[A-Za-z][A-Za-z+/.-]{2,}", text.lower())
+    return _dedupe_preserve_order([token for token in tokens if token not in stop_words and len(token) > 3])
+
+
+def _confidence_points(confidence: str) -> int:
+    return {
+        "Strong": 3,
+        "Medium": 2,
+        "Needs Confirmation": 1,
+        "Missing": 0,
+    }.get(confidence, 0)
+
+
+def _render_match_report(
+    job: dict[str, object],
+    jd_analysis: dict[str, object],
+    match_report: dict[str, object],
+    source: Path,
+    base_resume_path: Path | None,
+) -> str:
+    lines = [
+        f"# Match Report: {job.get('title', source.stem)}",
+        "",
+        f"Source posting: `{source}`",
+        f"Base resume: `{base_resume_path}`" if base_resume_path else "Base resume: not provided",
+        "",
+        f"## Match Score: {match_report['score']}%",
+        "",
+        "The score is explainable and evidence-based. It is not a promise of interview success.",
+        "",
+        "## JD Analyzer Summary",
+        "",
+        f"- Required skills: {len(jd_analysis.get('required_skills', []))}",
+        f"- Preferred skills: {len(jd_analysis.get('preferred_skills', []))}",
+        f"- Responsibilities: {len(jd_analysis.get('responsibilities', []))}",
+        f"- Tools/platforms: {_comma_join(jd_analysis.get('tools', [])) or 'None detected'}",
+        f"- Delivery methods: {_comma_join(jd_analysis.get('delivery_methods', [])) or 'None detected'}",
+        f"- Seniority signals: {_comma_join(jd_analysis.get('seniority_signals', [])) or 'None detected'}",
+        "",
+        "## Strengths",
+        "",
+    ]
+    lines.extend(_render_match_rows(match_report.get("strengths", [])))
+    lines.extend(["", "## Partial Matches", ""])
+    lines.extend(_render_match_rows(match_report.get("partial_matches", [])))
+    lines.extend(["", "## Missing Or Needs Confirmation", ""])
+    lines.extend(_render_match_rows(match_report.get("missing_evidence", [])))
+    lines.extend(
+        [
+            "",
+            "## How To Use This",
+            "",
+            "- Use Strong matches as safe tailoring themes.",
+            "- Treat Medium matches as wording candidates that need careful phrasing.",
+            "- Treat Needs Confirmation or Missing items as prompts for user confirmation, not resume claims.",
+            "",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _render_match_rows(rows: list[dict[str, object]]) -> list[str]:
+    if not rows:
+        return ["- None found."]
+    return [
+        (
+            f"- **{row['confidence']}** `{row['category']}`: {row['requirement']} "
+            f"Evidence: {row['evidence'] or 'not found'}. {row['explanation']}"
+        )
+        for row in rows[:20]
+    ]
+
+
+def _dedupe_preserve_order(values: list[str]) -> list[str]:
+    deduped = []
+    seen = set()
+    for value in values:
+        key = value.lower().strip()
+        if key and key not in seen:
+            seen.add(key)
+            deduped.append(value.strip())
+    return deduped
 
 
 def _build_alignment(profile: dict[str, object], job_text: str) -> list[dict[str, object]]:

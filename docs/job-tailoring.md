@@ -14,6 +14,19 @@ Paste the job description into that file.
 
 ## Generate Tailored Outputs
 
+Start with the explainable analysis:
+
+```powershell
+py -m resume_tailor analyze-job private\job-postings\example-job.md --base-resume tpm
+```
+
+This writes:
+
+- `jd_analysis.yml`
+- `match_report.md`
+
+Then generate tailoring artifacts:
+
 ```powershell
 py -m resume_tailor tailor-job private\job-postings\example-job.md
 ```

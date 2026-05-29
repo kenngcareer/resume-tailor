@@ -49,6 +49,7 @@ py -m resume_tailor init-private
 py -m resume_tailor extract-sources
 py -m resume_tailor build-profile
 py -m resume_tailor inspect-profile private\profile.yml
+py -m resume_tailor analyze-job private\job-postings\your-job.md --base-resume tpm
 py -m resume_tailor tailor-job private\job-postings\your-job.md
 py -m resume_tailor tailor-job private\job-postings\your-job.md --base-resume tpm
 ```
