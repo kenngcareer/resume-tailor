@@ -1,6 +1,7 @@
 # Private career data
 private/
 outputs/
+demo-output/
 
 # Local environment
 .env

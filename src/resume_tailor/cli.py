@@ -15,6 +15,9 @@ SOURCE_ROOT = PRIVATE_ROOT / "source-materials"
 EXTRACTED_ROOT = PRIVATE_ROOT / "extracted"
 JOB_POSTINGS_ROOT = PRIVATE_ROOT / "job-postings"
 OUTPUTS_ROOT = PROJECT_ROOT / "outputs"
+EXAMPLES_ROOT = PROJECT_ROOT / "examples"
+DEMO_ROOT = EXAMPLES_ROOT / "demo"
+DEMO_OUTPUT_ROOT = PROJECT_ROOT / "demo-output"
 
 
 @click.group()
@@ -459,6 +462,95 @@ def export_docx(markdown_resume_path: Path, output_path: Path | None) -> None:
 
     click.echo(f"Wrote ATS-safe DOCX to {docx_path}")
     click.echo(f"Wrote export summary to {summary_path}")
+
+
+@main.command()
+@click.option(
+    "--output-dir",
+    type=click.Path(path_type=Path),
+    default=DEMO_OUTPUT_ROOT,
+    show_default=True,
+    help="Directory where public demo artifacts will be written.",
+)
+def demo(output_dir: Path) -> None:
+    """Run the full workflow with fake public demo data."""
+    profile_path = DEMO_ROOT / "profile.yml"
+    job_path = DEMO_ROOT / "job_posting.md"
+    resume_path = DEMO_ROOT / "resume.md"
+    for path in [profile_path, job_path, resume_path]:
+        if not path.exists():
+            raise click.ClickException(f"Missing demo fixture: {path}")
+
+    profile = yaml.safe_load(profile_path.read_text(encoding="utf-8")) or {}
+    job_text = job_path.read_text(encoding="utf-8")
+    job = _parse_job_posting(job_text, job_path)
+    jd_analysis = _analyze_job_description(job_text, job)
+    resume_text = _clean_resume_text(resume_path.read_text(encoding="utf-8"))
+    match_report = _build_match_report(profile, resume_text, jd_analysis)
+    review_items = _build_bullet_review(profile, resume_text, jd_analysis)
+
+    job_output_dir = output_dir / _slugify(str(job["title"]))
+    job_output_dir.mkdir(parents=True, exist_ok=True)
+
+    review = {
+        "job": {
+            "title": job.get("title", ""),
+            "company": job.get("company", ""),
+            "source": str(job_path),
+        },
+        "base_resume": str(resume_path),
+        "review_items": _demo_decisions(review_items),
+    }
+    approved_items, blocked_items = _approval_decisions(review)
+
+    paths = {
+        "jd_analysis": job_output_dir / "jd_analysis.yml",
+        "match_report": job_output_dir / "match_report.md",
+        "bullet_review_yml": job_output_dir / "bullet_review.yml",
+        "bullet_review_md": job_output_dir / "bullet_review.md",
+        "resume_approved": job_output_dir / "resume_approved.md",
+        "approval_summary": job_output_dir / "approval_summary.md",
+        "blocked_items": job_output_dir / "blocked_items.md",
+        "resume_docx": job_output_dir / "resume_approved.docx",
+    }
+
+    paths["jd_analysis"].write_text(
+        yaml.safe_dump(jd_analysis, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    paths["match_report"].write_text(
+        _render_match_report(
+            job=job,
+            jd_analysis=jd_analysis,
+            match_report=match_report,
+            source=job_path,
+            base_resume_path=resume_path,
+        ),
+        encoding="utf-8",
+    )
+    paths["bullet_review_yml"].write_text(
+        yaml.safe_dump(review, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    paths["bullet_review_md"].write_text(_render_bullet_review_markdown(review), encoding="utf-8")
+    paths["resume_approved"].write_text(
+        _render_approved_resume(review, approved_items),
+        encoding="utf-8",
+    )
+    paths["approval_summary"].write_text(
+        _render_approval_summary(review, approved_items, blocked_items),
+        encoding="utf-8",
+    )
+    paths["blocked_items"].write_text(_render_blocked_items(review, blocked_items), encoding="utf-8")
+    _markdown_resume_to_docx(paths["resume_approved"].read_text(encoding="utf-8")).save(
+        paths["resume_docx"]
+    )
+    paths["resume_docx"].with_name("resume_approved_export_summary.md").write_text(
+        _render_export_summary(paths["resume_approved"], paths["resume_docx"]),
+        encoding="utf-8",
+    )
+
+    click.echo(f"Wrote public demo artifacts to {job_output_dir}")
 
 
 def _document_summary(relative_path: Path, text: str) -> dict[str, object]:
@@ -1068,6 +1160,29 @@ def _render_export_summary(markdown_resume_path: Path, docx_path: Path) -> str:
             "",
         ]
     )
+
+
+def _demo_decisions(review_items: list[dict[str, object]]) -> list[dict[str, object]]:
+    decided = []
+    for index, item in enumerate(review_items):
+        item = {**item}
+        if index == 0:
+            item["decision"] = "approved"
+            if item.get("truthfulness_risk") == "medium":
+                item["confirmation_note"] = "Demo confirmation: wording is supported by fake resume."
+        elif index == 1:
+            item["decision"] = "edited"
+            item["user_edit"] = _resume_bullet_from_claim(
+                str(item.get("suggested_rewrite", "")).replace(
+                    "reinforcing", "demonstrating"
+                )
+            )
+            if item.get("truthfulness_risk") == "medium":
+                item["confirmation_note"] = "Demo confirmation: edited wording is supported."
+        else:
+            item["decision"] = "pending"
+        decided.append(item)
+    return decided
 
 
 def _resolve_base_resume(base_resume: str) -> Path:

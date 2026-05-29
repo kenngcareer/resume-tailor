@@ -2,6 +2,14 @@
 
 ## Add a Job Posting
 
+To try the product without private files, run:
+
+```powershell
+py -m resume_tailor demo
+```
+
+The demo uses fake data from `examples/demo/` and writes outputs under `demo-output/`.
+
 Create a Markdown or text file under `private/job-postings/`.
 
 Example:

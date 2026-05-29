@@ -14,6 +14,16 @@ For real applications, the strongest path is to start from the best existing res
 4. Run the tailor workflow with `py -m resume_tailor tailor-job private\job-postings\your-job.md`.
 5. Review the generated resume and rationale in `outputs/`.
 
+## Public Demo
+
+Run the full workflow with fake data:
+
+```powershell
+py -m resume_tailor demo
+```
+
+This writes sample artifacts under `demo-output/`, including JD analysis, match report, bullet review, approved resume Markdown, and ATS-safe DOCX export.
+
 ## Source Materials
 
 Useful inputs include:
@@ -46,6 +56,7 @@ This repo has a first-pass offline workflow for extracting PDF text, building a 
 
 ```powershell
 py -m resume_tailor init-private
+py -m resume_tailor demo
 py -m resume_tailor extract-sources
 py -m resume_tailor build-profile
 py -m resume_tailor inspect-profile private\profile.yml

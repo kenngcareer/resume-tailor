@@ -16,10 +16,11 @@ This roadmap maps the current repo to the ResumeTailor AI v1.0 PRD.
 - Truthfulness guardrail fields for risky rewrites, blocked terms, and confirmation prompts.
 - Enforced approval blocking for medium/high truthfulness risk.
 - ATS-safe DOCX export from reviewed Markdown resumes.
+- Public demo workflow using fake profile, resume, and job posting data.
 
 ## Next
 
-- Public demo using fake resume and fake job data.
+- GitHub Actions CI.
 
 ## Product Direction
 

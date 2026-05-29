@@ -13,6 +13,7 @@ def test_cli_help() -> None:
     assert "review-diff" in result.output
     assert "apply-approved" in result.output
     assert "export-docx" in result.output
+    assert "demo" in result.output
 
 
 def test_tailor_job_writes_outputs(tmp_path) -> None:
@@ -501,6 +502,18 @@ Enterprise TPM with AI platform experience.
     summary = (tmp_path / "resume_approved_export_summary.md").read_text(encoding="utf-8")
     assert "single column" in summary
     assert "no tables" in summary
+
+
+def test_demo_writes_public_demo_artifacts(tmp_path) -> None:
+    result = CliRunner().invoke(main, ["demo", "--output-dir", str(tmp_path)])
+
+    target_dir = tmp_path / "senior-technical-program-manager"
+    assert result.exit_code == 0
+    assert (target_dir / "jd_analysis.yml").exists()
+    assert (target_dir / "match_report.md").exists()
+    assert (target_dir / "bullet_review.yml").exists()
+    assert (target_dir / "resume_approved.md").exists()
+    assert (target_dir / "resume_approved.docx").exists()
 
 
 def test_truthfulness_guardrail_flags_risky_verb_inflation() -> None:

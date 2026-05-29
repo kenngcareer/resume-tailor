@@ -1,0 +1,32 @@
+name: Jordan Lee
+target_roles:
+  - Technical Program Manager
+  - Product Operations Manager
+positioning:
+  headline: Technical program leader for AI workflow products and cross-functional platform launches.
+  themes:
+    - Cross-functional launch execution
+    - Executive communication
+    - Risk management
+    - AI workflow adoption
+skills:
+  - Technical program management
+  - Product operations
+  - Risk management
+  - Executive communication
+  - Agile delivery
+  - SQL
+  - AI workflow tooling
+evidence_snippets:
+  - claim: Led a cross-functional AI workflow launch across product, engineering, design, and support teams.
+    status: demo
+  - claim: Created launch governance, risk tracking, decision logs, and executive status readouts.
+    status: demo
+  - claim: Improved support readiness by building training materials and release checklists.
+    status: demo
+feedback_themes:
+  - Communicates clearly
+  - Creates structure in ambiguity
+  - Drives follow-through across teams
+verification_needed:
+  - Demo data only. Replace with verified personal evidence before applying.
